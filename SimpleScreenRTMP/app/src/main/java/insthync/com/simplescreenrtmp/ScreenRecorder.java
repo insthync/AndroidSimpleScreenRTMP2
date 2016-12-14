@@ -124,9 +124,6 @@ public class ScreenRecorder extends Thread {
         }
 
         if (encodedData != null) {
-            final boolean isHeader = (mBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
-            final boolean isKeyframe = (mBufferInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 && !isHeader;
-            final long timestamp = mBufferInfo.presentationTimeUs;
 
             encodedData.position(mBufferInfo.offset);
             encodedData.limit(mBufferInfo.offset + mBufferInfo.size);
@@ -135,7 +132,7 @@ public class ScreenRecorder extends Thread {
             encodedData.get(bytes);
 
             if (mListener != null) {
-                mListener.OnReceiveScreenRecordData(isHeader, isKeyframe, timestamp, bytes);
+                mListener.OnReceiveScreenRecordData(mBufferInfo, bytes);
             }
 
             if (mMuxer != null) {
@@ -201,6 +198,6 @@ public class ScreenRecorder extends Thread {
 
     public interface ScreenRecordListener
     {
-        void OnReceiveScreenRecordData(final boolean isHeader, final boolean isKeyframe, final long timestamp, final byte[] data);
+        void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final byte[] data);
     }
 }

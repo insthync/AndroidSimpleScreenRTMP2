@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.MediaCodec;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.AsyncTask;
@@ -225,7 +226,11 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
     }
 
     @Override
-    public void OnReceiveScreenRecordData(final boolean isHeader, final boolean isKeyframe, final long timestamp, final byte[] data) {
+    public void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final byte[] data) {
+        final boolean isHeader = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+        final boolean isKeyframe = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 && !isHeader;
+        final long timestamp = bufferInfo.presentationTimeUs;
+
         // Always call postVideo method from a background thread.
         Log.d(TAG, "OnReceiveScreenRecordData isHeader: " + isHeader + " isKeyframe: " + isKeyframe + " timestamp: " + timestamp + " data: " + data);
         new AsyncTask<Void, Void, Void>() {
