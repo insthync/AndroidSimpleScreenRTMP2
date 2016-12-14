@@ -1,12 +1,20 @@
 package insthync.com.simplescreenrtmp;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -20,12 +28,15 @@ import com.octiplex.android.rtmp.RtmpMuxer;
 import com.octiplex.android.rtmp.RtmpConnectionListener;
 import com.octiplex.android.rtmp.Time;
 
+import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity implements View.OnClickListener, RtmpConnectionListener, ScreenRecorder.ScreenRecordListener, AudioRecorder.AudioRecordListener {
-    private static final int REQUEST_CODE = 1;
+    private static final String TAG = "MainActivity";
+    private static final int REQUEST_SCREEN_CAPTURE = 1;
+    private static final int REQUEST_WRITE_STORAGE = 2;
     // RTMP Constraints
-    private static final String DEFAULT_RMTP_HOST = "192.168.1.45";
+    private static final String DEFAULT_RMTP_HOST = "192.168.1.78";
     private static final int DEFAULT_RTMP_PORT = 1935;
     private static final String DEFAULT_APP_NAME = "live";
     private static final String DEFAULT_PUBLISH_NAME = "test";
@@ -56,6 +67,31 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         mTextPublishName.setText(DEFAULT_PUBLISH_NAME);
         //noinspection ResourceType
         mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+
+        boolean hasPermission = (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED);
+        if (!hasPermission) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_STORAGE);
+        } else {
+            Log.d(TAG, "App can write storage");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode)
+        {
+            case REQUEST_WRITE_STORAGE: {
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
+                {
+                    //reload my activity with permission granted or use the features what required the permission
+                } else
+                {
+                    Toast.makeText(this, "The app was not allowed to write to your storage. Hence, it cannot function properly. Please consider granting it this permission", Toast.LENGTH_LONG).show();
+                }
+            }
+        }
+
     }
 
     @Override
@@ -65,11 +101,19 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
             Log.e("@@", "media projection is null");
             return;
         }
+
+        DisplayMetrics displaymetrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(displaymetrics);
+
         // video size
-        final int width = 1280;
-        final int height = 720;
-        final int bitrate = 6000000;
-        mScreenRecorder = new ScreenRecorder(width, height, bitrate, 1, mediaProjection, this);
+        final int width = displaymetrics.widthPixels;
+        final int height = displaymetrics.heightPixels;
+        final int bitrate = 2500;
+
+        File file = new File(Environment.getExternalStorageDirectory(),
+                "record-" + width + "x" + height + "-" + System.currentTimeMillis() + ".mp4");
+
+        mScreenRecorder = new ScreenRecorder(width, height, bitrate, 1, mediaProjection, file.getAbsolutePath(), this);
         mScreenRecorder.start();
         //mAudioRecorder = new AudioRecorder(this);
         //mAudioRecorder.start();
@@ -118,14 +162,6 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
 
     private void release()
     {
-        if (mRtmpMuxer != null) {
-            try {
-                mRtmpMuxer.deleteStream();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            mRtmpMuxer.stop();
-        }
         if (mScreenRecorder != null) {
             mScreenRecorder.quit();
             mScreenRecorder = null;
@@ -134,6 +170,27 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
             mAudioRecorder.quit();
             mAudioRecorder = null;
         }
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+
+                if (mRtmpMuxer != null) {
+                    try {
+                        mRtmpMuxer.deleteStream();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    mRtmpMuxer.stop();
+                    mRtmpMuxer = null;
+                }
+            }
+        }).start();
     }
 
     @Override
@@ -158,7 +215,7 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
     @Override
     public void onReadyToPublish() {
         Intent captureIntent = mMediaProjectionManager.createScreenCaptureIntent();
-        startActivityForResult(captureIntent, REQUEST_CODE);
+        startActivityForResult(captureIntent, REQUEST_SCREEN_CAPTURE);
     }
 
     @Override
@@ -170,6 +227,7 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
     @Override
     public void OnReceiveScreenRecordData(final boolean isHeader, final boolean isKeyframe, final long timestamp, final byte[] data) {
         // Always call postVideo method from a background thread.
+        Log.d(TAG, "OnReceiveScreenRecordData isHeader: " + isHeader + " isKeyframe: " + isKeyframe + " timestamp: " + timestamp + " data: " + data);
         new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... params) {

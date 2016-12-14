@@ -418,6 +418,7 @@ public final class RtmpMuxer implements RtmpReader.RtmpReaderListener
     @WorkerThread
     private void connect(@NonNull String app, @Nullable String serverUrl, @Nullable String pageUrl) throws IOException
     {
+        Log.d(TAG, "RtmpMuxer connected " + app);
         byte[] connectFunction = Amf0Functions.connect(app, serverUrl, pageUrl);
 
         ByteBuffer buffer = ByteBuffer.allocate(connectFunction.length+12);
