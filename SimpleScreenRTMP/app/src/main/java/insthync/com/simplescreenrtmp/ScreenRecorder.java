@@ -26,7 +26,7 @@ public class ScreenRecorder extends Thread {
     private static final String MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_AVC; // H.264 Advanced Video Coding
     private static final int FRAME_RATE = 30; // 30 fps
     private static final int IFRAME_INTERVAL = 5; // 10 seconds between I-frames
-    private static final int TIMEOUT_USEC = 10000;
+    private static final int TIMEOUT_USEC = 1000000000;
 
     private MediaCodec mEncoder;
     private Surface mSurface;
