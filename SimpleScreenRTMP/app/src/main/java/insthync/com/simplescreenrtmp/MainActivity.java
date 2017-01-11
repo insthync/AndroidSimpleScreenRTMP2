@@ -107,9 +107,9 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         getWindowManager().getDefaultDisplay().getMetrics(displaymetrics);
 
         // video size
-        final int width = displaymetrics.widthPixels;
-        final int height = displaymetrics.heightPixels;
-        final int bitrate = 2500;
+        final int width = 640;
+        final int height = 480;
+        final int bitrate = 1000000;
 
         File file = new File(Environment.getExternalStorageDirectory(),
                 "record-" + width + "x" + height + "-" + System.currentTimeMillis() + ".mp4");
@@ -226,13 +226,10 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
     }
 
     @Override
-    public void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final byte[] data) {
-        final boolean isHeader = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
-        final boolean isKeyframe = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0 && !isHeader;
-        final long timestamp = bufferInfo.presentationTimeUs;
+    public void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final boolean isHeader, final int timestamp, final byte[] data) {
 
         // Always call postVideo method from a background thread.
-        Log.d(TAG, "OnReceiveScreenRecordData isHeader: " + isHeader + " isKeyframe: " + isKeyframe + " timestamp: " + timestamp + " data: " + data);
+        Log.d(TAG, "OnReceiveScreenRecordData isHeader: " + isHeader + " timestamp: " + timestamp + " data: " + data);
         new AsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackground(Void... params) {
@@ -256,7 +253,7 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
 
                         @Override
                         public boolean isKeyframe() {
-                            return isKeyframe;
+                            return !isHeader;
                         }
                     });
                 } catch (IOException e) {
