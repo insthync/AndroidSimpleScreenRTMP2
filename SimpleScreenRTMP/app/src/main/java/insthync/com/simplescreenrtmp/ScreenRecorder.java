@@ -25,7 +25,7 @@ public class ScreenRecorder extends Thread {
     // parameters for the encoder
     private static final String MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_AVC; // H.264 Advanced Video Coding
     private static final int FRAME_RATE = 30; // 30 fps
-    private static final int IFRAME_INTERVAL = 5; // 10 seconds between I-frames
+    private static final int IFRAME_INTERVAL = 10; // 10 seconds between I-frames
     private static final int TIMEOUT_USEC = 1000000000;
 
     private MediaCodec mEncoder;
@@ -39,6 +39,7 @@ public class ScreenRecorder extends Thread {
     private MediaMuxer mMuxer;
     private boolean mMuxerStarted = false;
     private int mVideoTrackIndex = -1;
+    private long startTime = 0;
 
     public ScreenRecorder(int width, int height, int bitrate, int dpi, MediaProjection mp, String dstPath, ScreenRecordListener listener) {
         super(TAG);
@@ -49,6 +50,7 @@ public class ScreenRecorder extends Thread {
         mMediaProjection = mp;
         mDstPath = dstPath;
         mListener = listener;
+        startTime = 0;
     }
 
     /**
@@ -81,7 +83,7 @@ public class ScreenRecorder extends Thread {
 
     private void recordVirtualDisplay() {
         while (!mQuit.get()) {
-            int index = mEncoder.dequeueOutputBuffer(mBufferInfo, TIMEOUT_USEC);
+            int index = mEncoder.dequeueOutputBuffer(mBufferInfo, -1);
             Log.i(TAG, "dequeue output buffer index=" + index);
             if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 resetOutputFormat();
@@ -107,11 +109,22 @@ public class ScreenRecorder extends Thread {
     private void encodeToVideoTrack(int index) {
         ByteBuffer encodedData = mEncoder.getOutputBuffer(index);
 
+        if (startTime == 0)
+            startTime = mBufferInfo.presentationTimeUs / 1000;
+
+        int timestamp = (int) ((mBufferInfo.presentationTimeUs / 1000) - startTime);
+
         if ((mBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-            // The codec config data was pulled out and fed to the muxer when we got
-            // the INFO_OUTPUT_FORMAT_CHANGED status.
-            // Ignore it.
-            Log.d(TAG, "ignoring BUFFER_FLAG_CODEC_CONFIG");
+            encodedData.position(mBufferInfo.offset);
+            encodedData.limit(mBufferInfo.offset + mBufferInfo.size);
+
+            final byte[] bytes = new byte[encodedData.remaining()];
+            encodedData.get(bytes);
+
+            if (mListener != null) {
+                mListener.OnReceiveScreenRecordData(mBufferInfo, true, timestamp, bytes);
+            }
+
             mBufferInfo.size = 0;
         }
         if (mBufferInfo.size == 0) {
@@ -132,7 +145,7 @@ public class ScreenRecorder extends Thread {
             encodedData.get(bytes);
 
             if (mListener != null) {
-                mListener.OnReceiveScreenRecordData(mBufferInfo, bytes);
+                mListener.OnReceiveScreenRecordData(mBufferInfo, false, timestamp, bytes);
             }
 
             if (mMuxer != null) {
@@ -198,6 +211,6 @@ public class ScreenRecorder extends Thread {
 
     public interface ScreenRecordListener
     {
-        void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final byte[] data);
+        void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, boolean isHeader, int timestamp, final byte[] data);
     }
 }
