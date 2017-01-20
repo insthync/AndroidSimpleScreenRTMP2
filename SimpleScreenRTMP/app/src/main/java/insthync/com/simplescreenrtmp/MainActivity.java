@@ -32,24 +32,31 @@ import com.octiplex.android.rtmp.Time;
 import java.io.File;
 import java.io.IOException;
 
-public class MainActivity extends Activity implements View.OnClickListener, RtmpConnectionListener, ScreenRecorder.ScreenRecordListener, AudioRecorder.AudioRecordListener {
+public class MainActivity extends Activity implements View.OnClickListener, RtmpConnectionListener, ScreenRecorder.ScreenRecordListener {
     private static final String TAG = "MainActivity";
     private static final int REQUEST_SCREEN_CAPTURE = 1;
-    private static final int REQUEST_WRITE_STORAGE = 2;
+    private static final int REQUEST_STREAM = 2;
+    private static String[] PERMISSIONS_STREAM = {
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.CAPTURE_VIDEO_OUTPUT,
+            Manifest.permission.CAPTURE_AUDIO_OUTPUT,
+    };
     // RTMP Constraints
-    private static final String DEFAULT_RMTP_HOST = "192.168.1.78";
+    private static final String DEFAULT_RMTP_HOST = "188.166.191.129";
     private static final int DEFAULT_RTMP_PORT = 1935;
     private static final String DEFAULT_APP_NAME = "live";
     private static final String DEFAULT_PUBLISH_NAME = "test";
     private MediaProjectionManager mMediaProjectionManager;
     private ScreenRecorder mScreenRecorder;
-    private AudioRecorder mAudioRecorder;
     private RtmpMuxer mRtmpMuxer;
     private Button mButton;
     private EditText mTextServerAddress;
     private EditText mTextServerPort;
     private EditText mTextAppName;
     private EditText mTextPublishName;
+    private boolean authorized;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -69,30 +76,37 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         //noinspection ResourceType
         mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
 
-        boolean hasPermission = (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED);
-        if (!hasPermission) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_WRITE_STORAGE);
-        } else {
-            Log.d(TAG, "App can write storage");
+        verifyPermissions();
+    }
+
+    public void verifyPermissions() {
+        for (String permission : PERMISSIONS_STREAM) {
+            int permissionResult = ActivityCompat.checkSelfPermission(MainActivity.this, permission);
+            if (permissionResult != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        MainActivity.this,
+                        PERMISSIONS_STREAM,
+                        REQUEST_STREAM
+                );
+                authorized = false;
+                return;
+            }
         }
+        authorized = true;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode)
-        {
-            case REQUEST_WRITE_STORAGE: {
-                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
-                {
-                    //reload my activity with permission granted or use the features what required the permission
-                } else
-                {
-                    Toast.makeText(this, "The app was not allowed to write to your storage. Hence, it cannot function properly. Please consider granting it this permission", Toast.LENGTH_LONG).show();
+        if (requestCode == REQUEST_STREAM) {
+            for (int grantResult : grantResults) {
+                if (grantResult != PackageManager.PERMISSION_GRANTED) {
+                    authorized = false;
+                    return;
                 }
             }
+            authorized = true;
         }
-
     }
 
     @Override
@@ -110,17 +124,17 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         final int width = 640;
         final int height = 480;
         final int bitrate = 1000000;
+        final int audioSampleRate = 44100;
+        final int audioBitrate = 32000;
 
         File file = new File(Environment.getExternalStorageDirectory(),
                 "record-" + width + "x" + height + "-" + System.currentTimeMillis() + ".mp4");
 
-        mScreenRecorder = new ScreenRecorder(width, height, bitrate, 1, mediaProjection, file.getAbsolutePath(), this);
+        mScreenRecorder = new ScreenRecorder(width, height, bitrate, 1, audioSampleRate, audioBitrate, mediaProjection, file.getAbsolutePath(), this);
         mScreenRecorder.start();
-        //mAudioRecorder = new AudioRecorder(this);
-        //mAudioRecorder.start();
         mButton.setText("Stop Recorder");
         Toast.makeText(this, "Screen recorder is running...", Toast.LENGTH_SHORT).show();
-        moveTaskToBack(true);
+        //moveTaskToBack(true);
     }
 
     @Override
@@ -128,7 +142,7 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         final String serverAddress = mTextServerAddress.getText().toString();
         final int serverPort = Integer.parseInt(mTextServerPort.getText().toString());
         final String appName = mTextAppName.getText().toString();
-        if (mRtmpMuxer != null || mScreenRecorder != null || mAudioRecorder != null) {
+        if (mRtmpMuxer != null || mScreenRecorder != null) {
             release();
             mButton.setText("Start recorder");
         } else {
@@ -166,10 +180,6 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
         if (mScreenRecorder != null) {
             mScreenRecorder.quit();
             mScreenRecorder = null;
-        }
-        if (mAudioRecorder != null) {
-            mAudioRecorder.quit();
-            mAudioRecorder = null;
         }
 
         new Thread(new Runnable() {
@@ -226,90 +236,74 @@ public class MainActivity extends Activity implements View.OnClickListener, Rtmp
     }
 
     @Override
-    public void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final boolean isHeader, final int timestamp, final byte[] data) {
+    public void OnReceiveScreenRecordData(final MediaCodec.BufferInfo bufferInfo, final boolean isHeader, final long timestamp, final byte[] data) {
 
         // Always call postVideo method from a background thread.
-        Log.d(TAG, "OnReceiveScreenRecordData isHeader: " + isHeader + " timestamp: " + timestamp + " data: " + data);
-        new AsyncTask<Void, Void, Void>() {
-            @Override
-            protected Void doInBackground(Void... params) {
-                try {
-                    mRtmpMuxer.postVideo(new H264VideoFrame() {
-                        @Override
-                        public boolean isHeader() {
-                            return isHeader;
-                        }
-
-                        @Override
-                        public long getTimestamp() {
-                            return timestamp;
-                        }
-
-                        @NonNull
-                        @Override
-                        public byte[] getData() {
-                            return data;
-                        }
-
-                        @Override
-                        public boolean isKeyframe() {
-                            return !isHeader;
-                        }
-                    });
-                } catch (IOException e) {
-                    // An error occured while sending the video frame to the server
+        try {
+            mRtmpMuxer.postVideo(new H264VideoFrame() {
+                @Override
+                public boolean isHeader() {
+                    return isHeader;
                 }
-                return null;
-            }
-        }.execute();
+
+                @Override
+                public long getTimestamp() {
+                    return timestamp;
+                }
+
+                @NonNull
+                @Override
+                public byte[] getData() {
+                    return data;
+                }
+
+                @Override
+                public boolean isKeyframe() {
+                    return !isHeader;
+                }
+            });
+        } catch (IOException e) {
+            // An error occured while sending the video frame to the server
+        }
     }
 
     @Override
-    public void OnSetAudioHeader(final int numberOfChannel, final int sampleSizeIndex, final byte[] data) {
-        mRtmpMuxer.setAudioHeader(new AACAudioHeader() {
-            @NonNull
-            @Override
-            public byte[] getData() {
-                return data;
-            }
-
-            @Override
-            public int getNumberOfChannels() {
-                return numberOfChannel;
-            }
-
-            @Override
-            public int getSampleSizeIndex() {
-                return sampleSizeIndex;
-            }
-        });
-    }
-
-    @Override
-    public void OnReceiveAudioRecordData(final long timestamp, final byte[] data) {
-        // Don't call postAudio from the extracting thread.
-        new AsyncTask<Void, Void, Void>() {
-            @Override
-            protected Void doInBackground(Void... params) {
-                try {
-                    mRtmpMuxer.postAudio(new AACAudioFrame() {
-                        @Override
-                        public long getTimestamp() {
-                            return timestamp;
-                        }
-
-                        @NonNull
-                        @Override
-                        public byte[] getData() {
-                            return data;
-                        }
-                    });
-                } catch (IOException e) {
-                    // An error occured while sending the audio frame to the server
+    public void OnReceiveAudioRecordData(final MediaCodec.BufferInfo bufferInfo, final boolean isHeader, final long timestamp, final byte[] data, final int numberOfChannel, final int sampleSizeIndex) {
+        if (isHeader) {
+            mRtmpMuxer.setAudioHeader(new AACAudioHeader() {
+                @NonNull
+                @Override
+                public byte[] getData() {
+                    return data;
                 }
 
-                return null;
+                @Override
+                public int getNumberOfChannels() {
+                    return numberOfChannel;
+                }
+
+                @Override
+                public int getSampleSizeIndex() {
+                    return sampleSizeIndex;
+                }
+            });
+        } else {
+            try {
+                mRtmpMuxer.postAudio(new AACAudioFrame() {
+                    @Override
+                    public long getTimestamp() {
+                        return timestamp;
+                    }
+
+                    @NonNull
+                    @Override
+                    public byte[] getData() {
+                        return data;
+                    }
+                });
+            } catch (IOException e) {
+                // An error occured while sending the audio frame to the server
             }
-        }.execute();
+        }
     }
 }
